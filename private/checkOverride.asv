@@ -1,0 +1,51 @@
+function [Cstar_eff,Cstar,mw,gam,T,mdot,Rsp,Me,At,Ae,Ac,AeAt] = checkOverride(Rc_override,Cstar_eff,Thrust,Rbar,Pe,Ac,At,Cstar_initial,OF,Pc,FUEL_type,FUEL_wt,FUEL_h,FUEL_T,FUEL_rho,OXID_type,OXID_wt,OXID_h,OXID_T,OXID_rho)
+if(Rc_override ~= 0)
+    if(Rc_override/39.3701 < sqrt(Ac/pi))
+        warning(sprintf(['WARNING: Ideal chamber radius (%.2f [in]) greater than ' ...
+            'overridden radius (%.2f [in]), please correct for optimal ' ...
+            'performance.\n'],sqrt(Ac/pi)*39.3701,Rc_override))
+        userinp1 = input('Do you want to adjust anyway? 1 = YES, 0 = NO\n');
+        if userinp1 == 1
+            Ac = (Rc_override/39.3701)^2*pi; % [m^2]
+            AcAt = Ac/At; % [-] 
+            CEARUN = CEA('problem','rocket','equilibrium','fac',...
+                        'acat',AcAt,...
+                        'o/f',OF,...
+                        'p,psia',Pc,...
+                        'reactants','fuel',FUEL_type,'C',3,'H',8,'O',1,...
+                        'wt%',FUEL_wt,...
+                        'h,kJ/mol',FUEL_h,...% Standard Enthalpy of Formation from https://webbook.nist.gov/cgi/cbook.cgi?ID=C67630&Mask=1#Thermo-Gas
+                        't(k)',FUEL_T,...
+                        'rho,g/cc',FUEL_rho,...
+                        'oxid',OXID_type,'N',2,'O',1,...
+                        'wt%',OXID_wt,...
+                        'h,kJ/mol',OXID_h,... % Standard Enthalpy of Formation from https://webbook.nist.gov/cgi/cbook.cgi?ID=C10024972&Mask=1
+                        't(k)',OXID_T,...
+                        'rho,g/cc',OXID_rho,...
+                        'outp','tran','end');
+            Cstar  = CEARUN.output.eql.cstar(3)*Cstar_eff;
+            mw     = CEARUN.output.eql.mw(3); % Molecular Weight of Product Species [g/mol]
+            gam    = CEARUN.output.eql.gamma(3); % Specific Heat Ratio
+            T      = CEARUN.output.eql.temperature(2)*(Cstar_eff)^2; % Temperature @ Chamber [K]
+
+            Cstar_loss = 1-Cstar/Cstar_initial % [-]
+            Cstar_eff = Cstar_eff - Cstar_loss;
+
+            mdot = Thrust/Cstar; % [kg/s]
+            Rsp = Rbar/mw; % [kJ/kg*K]
+            Me = calcMe(Pe,Pc,gam); % [-]
+            At = calcAstar(mdot,Pc,T,Rsp,gam); % [m^2]
+            Ae = calcAe(At,Me,gam); % [m^2]
+            Ac = AcAt*At; % [m^2]
+            AeAt = Ae/At; % [-]
+        else
+            fprintf('Ending program...\n')
+            return
+        end
+    else
+        Ac = (Rc_override/39.3701)^2*pi; % [m^2]
+        AcAt = Ac/At; % [-]
+    end
+end
+end
+
