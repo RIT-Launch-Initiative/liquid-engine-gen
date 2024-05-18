@@ -104,9 +104,6 @@ INPUT.doFiniteElementAnalysis = 1;
 % Set to '1' to enable finite element analysis
 % Set to '0' to disable finite element analysis
 
-INPUT.doExportGraphics = 0;
-% Set to '1' to enable vector graphics export
-% Set to '0' to disable vector graphics export
 %% INPUTS -- FINITE ELEMENT ANALYSIS
 INPUT.doMeshRefinement = 0;
 
@@ -240,20 +237,15 @@ plotGeometry(OUTPUT.engineContour,OUTPUT.t1);
 plotRelationships(OUTPUT.engineContour,OUTPUT.localMachNumber,OUTPUT.localPressure,OUTPUT.localTemperature,OUTPUT.localDensity,OUTPUT.t2);
 plotFilmCoefficient(OUTPUT.engineContour,OUTPUT.FEA.h_g,OUTPUT.localTemperature,OUTPUT.t3);
 
-if(INPUT.doExportGraphics == 1)
-    exportgraphics(OUTPUT.t1,'output\thrustChamberGeometry.pdf','ContentType','vector')
-    exportgraphics(OUTPUT.t2,'output\fluidAreaRelationships.pdf','ContentType','vector')
-    exportgraphics(OUTPUT.t3,'output\filmCoefficient.pdf','ContentType','vector')
-end
+exportgraphics(OUTPUT.t1,'output\thrustChamberGeometry.png')
+exportgraphics(OUTPUT.t2,'output\fluidAreaRelationships.png')
+exportgraphics(OUTPUT.t3,'output\filmCoefficient.png','ContentType', 'vector')
 
 if(INPUT.doFiniteElementAnalysis == 1)
     if(OUTPUT.FEA.flagFailedAnalysis == 1)
         OUTPUT.t4 = uitab(OUTPUT.tg,'Title','Physical Mesh');
         plotMesh(OUTPUT.engineContour,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.t4)
-
-        if(INPUT.doExportGraphics == 1)
-            exportgraphics(OUTPUT.t4,'output\meshOutput.png')
-        end
+        exportgraphics(OUTPUT.t4,'output\meshOutput.png')
     else
     OUTPUT.t4 = uitab(OUTPUT.tg,'Title','Physical Mesh');
     OUTPUT.t5 = uitab(OUTPUT.tg,'Title','Transient Finite-Element Analysis');
@@ -262,11 +254,9 @@ if(INPUT.doFiniteElementAnalysis == 1)
     
     OUTPUT.tg.SelectedTab = OUTPUT.t5;
     plotHeatTransfer(OUTPUT.FEA.transientTemperatureData,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.burnTime,OUTPUT.t5);
-    
-        if(INPUT.doExportGraphics == 1)
-        exportgraphics(OUTPUT.t4,'output\meshOutput.pdf','ContentType','vector')
-        exportgraphics(OUTPUT.t5,'output\heatTransfer.pdf','ContentType','vector')
-        end
+
+    exportgraphics(OUTPUT.t4,'output\meshOutput.png','ContentType', 'vector')
+    exportgraphics(OUTPUT.t5,'output\heatTransfer.png','ContentType', 'vector')
     end
     OUTPUT.tg.SelectedTab = OUTPUT.t1;
 end

@@ -9,16 +9,7 @@ function [] = deleteOutput(homeDirec)
         return;
     end
     % Get a list of all files in the folder with the desired file name pattern.
-    filePattern = fullfile(myFolder, '*.png'); % Change to whatever pattern you need.
-    theFiles = dir(filePattern);
-    for k = 1 : length(theFiles)
-        baseFileName = theFiles(k).name;
-        fullFileName = fullfile(myFolder, baseFileName);
-        fprintf(1, 'Now deleting %s\n', fullFileName);
-        delete(fullFileName);
-    end
-    % Get a list of all files in the folder with the desired file name pattern.
-    filePattern = fullfile(myFolder, '*.csv'); % Change to whatever pattern you need.
+    filePattern = fullfile(myFolder, '*.pdf'); % Change to whatever pattern you need.
     theFiles = dir(filePattern);
     for k = 1 : length(theFiles)
         baseFileName = theFiles(k).name;

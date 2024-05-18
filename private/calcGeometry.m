@@ -125,9 +125,8 @@ elseif nozzle_type == 3
 
 % Currently requires dependance on NASA's Method of Characteristics script
 % to produce nozzle geometry.
-load('input/MOC_NASA.mat');
-MOC_NASA = MOC_NASA*Rt;
-noz_x = MOC_NASA(:,1)'; noz_y = MOC_NASA(:,2)';
+load('input/wall_contour_0p5Rth.mat');
+noz_x = wall_contour_0p5Rth(:,1)'; noz_y = wall_contour_0p5Rth(:,2)';
 
 x_data = [ch_len_x,ch_x,ch_contr_x,x_us,noz_x];
 y_data = [ch_len_y,ch_y,ch_contr_y,y_us,noz_y];
