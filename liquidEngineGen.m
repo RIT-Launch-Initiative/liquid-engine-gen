@@ -62,7 +62,7 @@ INPUT.oxidizerPercWeight=100;                                                   
 INPUT.oxidizerTemperature=298.15;                                                       % [K] Temperature
 INPUT.oxidizerDensity=1.220;                                                      % [g/cc] Density
 
-INPUT.nozzleType = 3; 
+INPUT.nozzleType = 2; 
 % 1 = Minimum Length Conical Nozzle
 % 2 = Minimum Length Bell Nozzle
 % 3 = Method of Characteristics (WIP)
@@ -95,7 +95,7 @@ INPUT.nozzleEfficiency = 0; % (WIP)
 % geometry generation.
 
 %% INPUTS -- BOOLEANS
-INPUT.doTempCorrection = 1;
+INPUT.doTempCorrection = 0;
 % Set to '1' to enable temperature correction through the c*-efficiency,
 % Set to '0' to ignore c*-eff and use ideal combustion temperature values.
 % This will effect the heat transfer analysis, if applicable.
