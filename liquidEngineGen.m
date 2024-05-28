@@ -62,7 +62,7 @@ INPUT.oxidizerPercWeight=100;                                                   
 INPUT.oxidizerTemperature=298.15;                                                       % [K] Temperature
 INPUT.oxidizerDensity=1.220;                                                      % [g/cc] Density
 
-INPUT.nozzleType = 2; 
+INPUT.nozzleTypeInt = 3; 
 % 1 = Minimum Length Conical Nozzle
 % 2 = Minimum Length Bell Nozzle
 % 3 = Method of Characteristics (WIP)
@@ -95,7 +95,7 @@ INPUT.nozzleEfficiency = 0; % (WIP)
 % geometry generation.
 
 %% INPUTS -- BOOLEANS
-INPUT.doTempCorrection = 0;
+INPUT.doTempCorrection = 1;
 % Set to '1' to enable temperature correction through the c*-efficiency,
 % Set to '0' to ignore c*-eff and use ideal combustion temperature values.
 % This will effect the heat transfer analysis, if applicable.
@@ -108,17 +108,23 @@ INPUT.doExportGraphics = 0;
 % Set to '1' to enable vector graphics export
 % Set to '0' to disable vector graphics export
 %% INPUTS -- FINITE ELEMENT ANALYSIS
-INPUT.doMeshRefinement = 0;
-
-% Mesh and problem sizing
+% Mesh Sizing
 INPUT.zDivisions = 1000;
 INPUT.rDivisions = 20;
-INPUT.wallThickness = 0.00254; % [m]
 
-% Material properties and boundary values
-INPUT.burnTime = 6; % [s]
+% Wall Thickness
+INPUT.chamberThickness_in = 0.15; % [in]
+INPUT.throatThickness_in = 0.125; % [in]
+INPUT.nozzleThickness_in = 0.0625; % [in] 1/16th
+
+% Transient Analysis Duration
+INPUT.burnTime = 5; % [s]
+
+% Material properties
 INPUT.thermalDiffusivity = 4.2e-6; % [m^2/s]
 INPUT.thermalConductivity = 16.2; % [W/m-K]
+INPUT.CTE = 17.3 * 10^-6; % [1/K]
+INPUT.poissonsRatio = 0.29; % [-]
 
 %% NASA CEA -- O/F RATIO & CONTRACTION AREA RATIO OPTIMIZATION (MAX C*)
 [OUTPUT.CEA,OUTPUT.contractionAR,OUTPUT.expansionAR,OUTPUT.OFRatio] = iterCEA(INPUT.overrideOF,INPUT.CEAIterations, ...
@@ -203,69 +209,66 @@ OUTPUT.throatDiameterInch = convlength(OUTPUT.throatDiameter,'m','in');         
 OUTPUT.exitRadius = sqrt(OUTPUT.exitArea/pi);                                            % [m] Exit Radius
 OUTPUT.exitDiameter = 2*OUTPUT.exitRadius;                                                   % [m] Exit Diameter
 OUTPUT.exitDiameterInch = convlength(OUTPUT.exitDiameter,'m','in');                             % [in] Exit Diamater
-
+    
+INPUT.chamberThickness = convlength(INPUT.chamberThickness_in,'in','m'); % [m]
+INPUT.throatThickness = convlength(INPUT.throatThickness_in,'in','m'); % [m]
+INPUT.nozzleThickness = convlength(INPUT.nozzleThickness_in,'in','m'); % [m]
 %% THRUST CHAMBER GEOMETRY
-OUTPUT.engineContour = calcGeometry(OUTPUT.chamberRadius,OUTPUT.exitRadius,OUTPUT.throatRadius, ...
-    OUTPUT.chamberLength,INPUT.nozzleType,INPUT.contourPoints,OUTPUT.exitMachNumber,OUTPUT.specificHeatRatio);      % [m] Engine Geometry
+OUTPUT.interiorEngineContour = calcGeometry(OUTPUT.chamberRadius,OUTPUT.exitRadius,OUTPUT.throatRadius, ...
+    OUTPUT.chamberLength,INPUT.nozzleTypeInt,INPUT.contourPoints,OUTPUT.exitMachNumber,OUTPUT.specificHeatRatio);      % [m] Engine Geometry
 
 %% AREA-MACH RELATIONSHIP
 [OUTPUT.localAR,OUTPUT.localMachNumber,OUTPUT.localTemperature,OUTPUT.localPressure,OUTPUT.localDensity] = areaMach( ...
- OUTPUT.engineContour,OUTPUT.contractionAR,OUTPUT.throatArea,OUTPUT.specificHeatRatio, ...
+ OUTPUT.interiorEngineContour,OUTPUT.contractionAR,OUTPUT.throatArea,OUTPUT.specificHeatRatio, ...
  OUTPUT.analysisTemperature(2),OUTPUT.chamberPressure,OUTPUT.density(2));
-% T       - [K] Local Temperature
-% P       - [Pa] Local Pressure
-% dens    - [kg/m^3] Local Density
-% AR      - [-] Local Area Ratio
+
 %% FILM COEFFICIENT
-[OUTPUT.FEA.h_g] = calcFilmCoefficient(OUTPUT.engineContour,OUTPUT.chamberRadius, ...
+[OUTPUT.FEA.h_g] = calcFilmCoefficient(OUTPUT.interiorEngineContour,OUTPUT.chamberRadius, ...
 OUTPUT.massFlowrate,OUTPUT.dynamicViscosity,OUTPUT.specificHeat,OUTPUT.prandtlNumber);                              % [W/m-K] Film Coefficient
 
 %% 2D TRANSIENT HEAT TRANSFER FEA
+[OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.Zeta,OUTPUT.FEA.Eta,OUTPUT.exteriorEngineContour,OUTPUT.wallThickness] = generateWallMesh(OUTPUT.interiorEngineContour,INPUT.chamberThickness,INPUT.throatThickness,INPUT.nozzleThickness,INPUT.zDivisions,INPUT.rDivisions);
+
 if(INPUT.doFiniteElementAnalysis == 1)
     OUTPUT.FEA.interiorFlameTemperature = OUTPUT.localTemperature;
     
     % Run transient heat transfer solver
-    [OUTPUT.FEA.transientTemperatureData,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.burnTime,OUTPUT.FEA.dt,OUTPUT.FEA.flagFailedAnalysis] = transientHeatTransfer(INPUT.doMeshRefinement,INPUT.zDivisions,INPUT.rDivisions,...
-    INPUT.wallThickness,OUTPUT.engineContour,OUTPUT.FEA.h_g,OUTPUT.FEA.interiorFlameTemperature,INPUT.burnTime,...
+    [OUTPUT.FEA.transientTemperatureData,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.burnTime,OUTPUT.FEA.dt,OUTPUT.FEA.flagFailedAnalysis] = transientHeatTransfer(OUTPUT.FEA.Z,OUTPUT.FEA.R,INPUT.zDivisions,INPUT.rDivisions,OUTPUT.wallThickness,...
+    OUTPUT.FEA.h_g,OUTPUT.FEA.interiorFlameTemperature,INPUT.burnTime,...
     INPUT.atmosphericTemperature,INPUT.thermalDiffusivity,INPUT.thermalConductivity);
+    
+%% 2D STRUCTURAL AND THERMAL STRESS ANALYSIS
+    [OUTPUT.FEA.FOS,OUTPUT.FEA.vonMisesStress] = calcStress(OUTPUT.FEA.transientTemperatureData,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.localPressure,OUTPUT.interiorEngineContour,convpres(INPUT.atmosphericPressure,'psi','Pa'),INPUT.CTE,INPUT.poissonsRatio);
 end
 %% UI OUTPUT
-OUTPUT.tgFigure = figure('Name','liquidEngineGen Output','Visible','off','ToolBar','none','Position',[100 100 1000 500]);
+OUTPUT.tgFigure = figure('Name','liquidEngineGen Output','Visible','off','NumberTitle', 'off','Position',[100 100 1000 800]);
 OUTPUT.tg = uitabgroup(OUTPUT.tgFigure);
 OUTPUT.t1 = uitab(OUTPUT.tg,'Title','Geometry');
-OUTPUT.t2 = uitab(OUTPUT.tg,'Title','Fluid-Area Relationships');
-OUTPUT.t3 = uitab(OUTPUT.tg,'Title','Thermodynamic Properties');
+OUTPUT.t2 = uitab(OUTPUT.tg,'Title','Fluid-Area Properties');
+OUTPUT.t3 = uitab(OUTPUT.tg,'Title','Meshing');
 
-plotGeometry(OUTPUT.engineContour,OUTPUT.t1);
-plotRelationships(OUTPUT.engineContour,OUTPUT.localMachNumber,OUTPUT.localPressure,OUTPUT.localTemperature,OUTPUT.localDensity,OUTPUT.t2);
-plotFilmCoefficient(OUTPUT.engineContour,OUTPUT.FEA.h_g,OUTPUT.localTemperature,OUTPUT.t3);
+plotGeometry(OUTPUT.interiorEngineContour,OUTPUT.exteriorEngineContour,OUTPUT.t1);
+plotProperties(OUTPUT.interiorEngineContour,OUTPUT.localMachNumber,OUTPUT.localPressure,OUTPUT.localTemperature,OUTPUT.localDensity,OUTPUT.FEA.h_g,OUTPUT.t2);
+plotMesh(OUTPUT.interiorEngineContour,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.Zeta,OUTPUT.FEA.Eta,OUTPUT.t3)
 
 if(INPUT.doExportGraphics == 1)
     exportgraphics(OUTPUT.t1,'output\thrustChamberGeometry.pdf','ContentType','vector')
-    exportgraphics(OUTPUT.t2,'output\fluidAreaRelationships.pdf','ContentType','vector')
-    exportgraphics(OUTPUT.t3,'output\filmCoefficient.pdf','ContentType','vector')
+    exportgraphics(OUTPUT.t2,'output\fluidAreaProperties.pdf','ContentType','vector')
+    exportgraphics(OUTPUT.t3,'output\meshOutput.pdf','ContentType','vector');
 end
 
 if(INPUT.doFiniteElementAnalysis == 1)
-    if(OUTPUT.FEA.flagFailedAnalysis == 1)
-        OUTPUT.t4 = uitab(OUTPUT.tg,'Title','Physical Mesh');
-        plotMesh(OUTPUT.engineContour,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.t4)
+    if(OUTPUT.FEA.flagFailedAnalysis == 0)
+        OUTPUT.t4 = uitab(OUTPUT.tg,'Title','Heat Diffusion Analysis');
+        OUTPUT.t5 = uitab(OUTPUT.tg,'Title','Stress and F.O.S. Analysis');
+    
+        OUTPUT.tg.SelectedTab = OUTPUT.t4;
+        plotHeatTransfer(OUTPUT.FEA.transientTemperatureData,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.burnTime,OUTPUT.t4);
+        plotStress(OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.FOS,OUTPUT.FEA.vonMisesStress,OUTPUT.FEA.burnTime,OUTPUT.t5)
 
         if(INPUT.doExportGraphics == 1)
-            exportgraphics(OUTPUT.t4,'output\meshOutput.png')
-        end
-    else
-    OUTPUT.t4 = uitab(OUTPUT.tg,'Title','Physical Mesh');
-    OUTPUT.t5 = uitab(OUTPUT.tg,'Title','Transient Finite-Element Analysis');
-
-    plotMesh(OUTPUT.engineContour,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.t4)
-    
-    OUTPUT.tg.SelectedTab = OUTPUT.t5;
-    plotHeatTransfer(OUTPUT.FEA.transientTemperatureData,OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.burnTime,OUTPUT.t5);
-    
-        if(INPUT.doExportGraphics == 1)
-        exportgraphics(OUTPUT.t4,'output\meshOutput.pdf','ContentType','vector')
-        exportgraphics(OUTPUT.t5,'output\heatTransfer.pdf','ContentType','vector')
+            exportgraphics(OUTPUT.t4,'output\heatTransfer.pdf','ContentType','vector')
+            exportgraphics(OUTPUT.t5,'output\vonMisesStress.pdf','ContentType','vector')
         end
     end
     OUTPUT.tg.SelectedTab = OUTPUT.t1;

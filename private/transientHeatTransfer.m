@@ -17,101 +17,7 @@
 % properties with regards to temperature, calculate P and Q laplacians to
 % account for the difference in mesh spacing.
 
-function [T,Z,R,TIME_END,dt,flagFailedAnalysis] = transientHeatTransfer(refineMesh,n_z,n_r,thickness,engine_contour,h_g,T_g,TIME_END,T_inf_L,THERMAL_DIFFUSIVITY,THERMAL_CONDUCTIVITY)
-%% INITIAL MESH
-% Import and initialize mesh points
-Z = zeros(n_r,n_z); R = Z;
-Z(end,:) = engine_contour(1,:); R(end,:) = engine_contour(2,:);
-
-% Determine radial and axial differentials
-dz = (Z(end,end)-Z(end,1))/(n_z-1);
-
-% Set up interior curve fit to maintain the correct shape of geometry
-% during mesh calculation.
-interior_fit = fit(Z(end,:)',R(end,:)','linearinterp');
-
-% Spacing the mesh evenly along a 2D vector with constant length on the
-% interior curve.
-t = (Z(end,1):dz:Z(end,end))./Z(end,end);
-meshSpacingXY = interparc(t,Z(end,:),R(end,:))';
-meshSpacingXY = meshSpacingXY(:,2:end);
-meshSpacingX = [0 meshSpacingXY(1,:)]; meshSpacingY = interior_fit(meshSpacingX);
-
-% Calculate tangent vectors
-dx = gradient(meshSpacingX);
-dy = gradient(meshSpacingY);
-% Calculate orthogonal vectors
-orthogonal_dx = -dy;
-orthogonal_dy = dx;
-
-for i = 1:length(meshSpacingX)
-    % Get derivative at each point
-    dfdx(i) = orthogonal_dy(i)/orthogonal_dx(i);
-    
-    % Calculate orthogonal vector
-    orthogonal_vector = [1, dfdx(i)];
-    orthogonal_vector = thickness * orthogonal_vector / norm(orthogonal_vector);
-    
-    if(dfdx(i) == -Inf)
-        tangentPoint(:,i) = [meshSpacingX(i);interior_fit(meshSpacingX(i))+thickness];
-    elseif(dfdx(i) > 0)
-        tangentPoint(:,i) = [meshSpacingX(i)+orthogonal_vector(1);interior_fit(meshSpacingX(i))+orthogonal_vector(2)];
-        cind = i;
-    elseif(dfdx(i) <= 0)
-        tangentPoint(:,i) = [meshSpacingX(i)-orthogonal_vector(1);interior_fit(meshSpacingX(i))-orthogonal_vector(2)];
-    end
-    Z(:,i) = linspace(meshSpacingX(i),tangentPoint(1,i),n_r);
-    R(:,i) = linspace(meshSpacingY(i),tangentPoint(2,i),n_r);
-end
-cind = cind+2;
-
-%% REFINING MESH
-% refineMesh -> FUNCTION INPUT
-if refineMesh == 1
-    upperMeshSpacing = sqrt((tangentPoint(1,2:end)-tangentPoint(1,1:end-1)).^2 + (tangentPoint(2,2:end)-tangentPoint(2,1:end-1)).^2);
-    minsp = dz-min(upperMeshSpacing);
-    % Calculate distances from the centering index
-    distance = Z(end,2:end-1)-Z(end,cind);
-    % Calculate Gaussian distribution
-    sigma = 0.001; % Standard deviation
-    gaussian_distribution = 0.5*minsp .* exp(-(distance.^2) / (2 * sigma^2));
-    [~,maxind] = max(gaussian_distribution);
-    disp_matrix = [0 -gaussian_distribution(2:maxind) 0 gaussian_distribution(maxind:end)];
-    
-    meshSpacingX = meshSpacingX + disp_matrix;
-    meshSpacingY = interior_fit(meshSpacingX);
-    
-     % Calculate tangent vectors
-    dx = gradient(meshSpacingX);
-    dy = gradient(interior_fit(meshSpacingX));
-    
-    % Calculate orthogonal vectors
-    orthogonal_dx = -dy;
-    orthogonal_dy = dx;
-    for i = 1:length(meshSpacingX)
-        % Get derivative at each point
-        dfdx = orthogonal_dy(i)/orthogonal_dx(i);
-    
-        % Calculate orthogonal vector
-        orthogonal_vector = [1, dfdx];
-        orthogonal_vector = thickness * orthogonal_vector / norm(orthogonal_vector);
-    
-        if(dfdx == -Inf)
-        tangentPoint(:,i) = [meshSpacingX(i);interior_fit(meshSpacingX(i))+thickness];
-    
-        elseif(dfdx > 0)
-        tangentPoint(:,i) = [meshSpacingX(i)+orthogonal_vector(1);interior_fit(meshSpacingX(i))+orthogonal_vector(2)];
-        elseif(dfdx <= 0)
-        tangentPoint(:,i) = [meshSpacingX(i)-orthogonal_vector(1);interior_fit(meshSpacingX(i))-orthogonal_vector(2)];
-        end
-        % Creating n_r number of points along the tangent line
-        Z(:,i) = linspace(meshSpacingX(i),tangentPoint(1,i),n_r);
-        R(:,i) = linspace(meshSpacingY(i),tangentPoint(2,i),n_r);
-    end
-end
-Z = flipud(Z);
-R = flipud(R);
-
+function [T,Z,R,burnTime,dt,flagFailedAnalysis] = transientHeatTransfer(Z,R,n_z,n_r,wallThickness,h_g,T_g,burnTime,atmosphericTemperature,thermalDiffusivity,thermalConductivity)
 %% 2D TRANSIENT HEAT EQUATION
 progressbar('transientHeatTransfer()...')
 flagFailedAnalysis = 0;
@@ -120,13 +26,12 @@ flagFailedAnalysis = 0;
 % THERMAL_CONDUCTIVITY -> FUNCTION INPUT
 
 % Differentials & Timesteps
-dr = thickness/(n_r-1);
+dr = mean(wallThickness/(n_r-1));
 dz = (Z(end)-Z(1))/(n_z-1);
 
-dt = (1/(2*THERMAL_DIFFUSIVITY*(1/dr^2+1/dz^2)))/5;
-TIMESTEPS = round(TIME_END/dt);
+dt = (1/(2*thermalDiffusivity*(1/dr^2+1/dz^2)))/5;
+totalTimesteps = round(burnTime/dt);
 
-totalIterations = TIMESTEPS;
 itercount = 0;
 % Initial & Boundary Conditions
 % Inner boundary condition
@@ -137,10 +42,10 @@ end
 T_inf_o = T_g; % [K]
 
 % Outer boundary condition
-h_L = linspace(28.372,28.372,n_z); % [W/mm^2-K]
+h_L = linspace(28.372,28.372,n_z); % [W/m^2-K]
 % T_inf_L -> FUNCTION INPUT
 % Initial temperature condition
-T = T_inf_L.*ones(n_r,n_z,TIMESTEPS+1);
+T = atmosphericTemperature.*ones(n_r,n_z,totalTimesteps+1);
 
 % Initializing matrices
 T_f_o = zeros(1,n_z);
@@ -161,8 +66,8 @@ zeta_center = 2:n_z-1;
 eta_all = 1:n_r;
 zeta_all = 1:n_z;
 % Zeta & Eta Transformantion Matrices
-%zeta = repmat(zeta_all,n_r,1);
-%eta = repmat(eta_all,n_z,1)';
+% Zeta = repmat(zeta_all,n_r,1);
+% Eta = repmat(eta_all,n_z,1)';
 % Finite difference approximation for partial derivatives, in the inner
 % region of the XY matrices. dx/deta, dy/deta, dx/dzeta, dy/dzeta; deta and
 % dzeta will always be 1 if defined in integer values, therefore they can
@@ -183,13 +88,19 @@ zeta_all = 1:n_z;
 [beta] = betaCalc(Z,R,zeta_center,zeta_all,eta_center,eta_all,n_r,n_z);
 [gamma] = gammaCalc(Z,R,zeta_center,zeta_all,eta_center,eta_all,n_r,n_z);
 [J] = jacobianCalc(Z,R,zeta_center,zeta_all,eta_center,eta_all,n_r,n_z);
-for t = 1:TIMESTEPS
+for t = 1:totalTimesteps
     % Ficticious nodes i = -1, i = M+1
     % Converting convection boundary conditions into equivalent temperature
     % nodes outside of the computational domain
-        T_f_o(zeta_center) = T(2,zeta_center) - 2./(gamma(1,zeta_center)+eps).*(beta(1,zeta_center).*(T(1,zeta_center+1)-T(1,zeta_center-1))./2 - (h_o(zeta_center).*(T(1,zeta_center)-T_inf_o(zeta_center))).*J(1,zeta_center).*gamma(1,zeta_center).^(0.5)./THERMAL_CONDUCTIVITY);
-        T_f_L(zeta_center) = T(end-1,zeta_center) - 2./(gamma(end,zeta_center)+eps).*(beta(end,zeta_center).*(T(end,zeta_center+1)-T(end,zeta_center-1))./2 - (h_L(zeta_center).*(T(end,zeta_center)-T_inf_L)).*J(end,zeta_center).*gamma(end,zeta_center).^(0.5)./THERMAL_CONDUCTIVITY);
-    
+        
+        % Ficticious node at the interior, reacts to combustion
+        % temperature.
+        T_f_o(zeta_center) = T(2,zeta_center,t) - 2./(gamma(1,zeta_center)+eps).*(beta(1,zeta_center).*(T(1,zeta_center+1,t)-T(1,zeta_center-1,t))./2 + (h_o(zeta_center).*(T(1,zeta_center,t)-T_inf_o(zeta_center))).*J(1,zeta_center).*gamma(1,zeta_center).^(0.5)./thermalConductivity);
+        
+        % Ficticious node at the exterior, reacts to atmospheric
+        % temperature.
+        T_f_L(zeta_center) = T(end-1,zeta_center,t) - 2./(gamma(end,zeta_center)+eps).*(beta(end,zeta_center).*(T(end,zeta_center+1,t)-T(end,zeta_center-1,t))./2 + (h_L(zeta_center).*(T(end,zeta_center,t)-atmosphericTemperature)).*J(end,zeta_center).*gamma(end,zeta_center).^(0.5)./thermalConductivity);
+        
     % (d^2/dzeta^2)T
         % f''(x) = {f(x+dx) - 2f(x) + f(x-dx)}/dx^2: Second-order centered diff.
         Tzz(eta_all,zeta_center) = T(eta_all,zeta_center+1,t)-...
@@ -225,13 +136,14 @@ for t = 1:TIMESTEPS
         % due to conduction.
         Tnn(1,zeta_all) = T(2,zeta_all,t) - 2*T(1,zeta_all,t) + T_f_o;
         Tnn(end,zeta_all) = T_f_L - 2*T(end,zeta_all,t) + T(end-1,zeta_all,t);
-
+    
     % Temperature Laplacian
     laplacianT(:,zeta_center) = (1./J(:,zeta_center).^2).*(alpha(:,zeta_center).*...
     Tzz(:,zeta_center)-2.*beta(:,zeta_center).*Tzn(:,zeta_center)+...
     gamma(:,zeta_center).*Tnn(:,zeta_center));
     
-    T(:,:,t+1) = T(:,:,t)+THERMAL_DIFFUSIVITY.*dt.*laplacianT; %Find the next T
+    T(:,:,t+1) = T(:,:,t)+thermalDiffusivity.*dt.*laplacianT; %Find the next T
+    
     if(sum(any(T(:,:,t+1)<0)) > 0 || sum(sum(isnan(T(:,:,t+1))) > 0))
         fprintf('\n')
         warning('Temperature Matrix Contains Negative/NaN values. Please double check mesh generation results.');
@@ -240,22 +152,24 @@ for t = 1:TIMESTEPS
         flagFailedAnalysis = 1;
         Z = flipud(Z);
         R = flipud(R);
+        T = flipud(T);
         T_end = T(:,:,t+1);
         break
     end
     itercount = itercount + 1;
-    progressbar(itercount/totalIterations);
+    progressbar(itercount/totalTimesteps);
 end
 if(flagFailedAnalysis == 0)
-Z = flipud(Z);
-R = flipud(R);
-T_end = T(:,:,t+1);
+    Z = flipud(Z);
+    R = flipud(R);
+    T = flipud(T);
+    T_end = T(:,:,t+1);
 end
 
 end
 
 %% FUNCTIONS
-function [alpha] = alphaCalc(Z,R,zeta_center,zeta_all,eta_center,eta_all,n_r,n_z)
+function [alpha] = alphaCalc(Z,R,zeta_center,zeta_all,eta_center,~,n_r,n_z)
 % ALPHA CALCULATION
 alpha = zeros(n_r,n_z);
 % alpha -- top row
@@ -268,7 +182,7 @@ alpha(eta_center,zeta_center) = ((Z(eta_center+1,zeta_center)-Z(eta_center-1,zet
 alpha(end,zeta_all) = ((3.*Z(end,zeta_all)-4.*Z(end-1,zeta_all)+Z(end-2,zeta_all))./2).^2+... % (dx/deta)^2
                     ((3.*R(end,zeta_all)-4.*R(end-1,zeta_all)+R(end-2,zeta_all))./2).^2;      % (dy/deta)^2
 end
-function [beta] = betaCalc(Z,R,zeta_center,zeta_all,eta_center,eta_all,n_r,n_z)
+function [beta] = betaCalc(Z,R,zeta_center,~,eta_center,~,n_r,n_z)
 % BETA CALCULATION
 beta = zeros(n_r,n_z);
 % beta -- top row
@@ -288,7 +202,7 @@ beta(end,zeta_center) = ((R(end,zeta_center+1)-R(end,zeta_center-1))./2).*...   
                         ((Z(end,zeta_center+1)-Z(end,zeta_center-1))./2).*...                          % dx/dzeta - centered diff.
                         (3.*Z(end,zeta_center)-4.*Z(end-1,zeta_center)+Z(end-2,zeta_center))./2;       % dx/deta - backward diff.
 end
-function [gamma] = gammaCalc(Z,R,zeta_center,zeta_all,eta_center,eta_all,n_r,n_z)
+function [gamma] = gammaCalc(Z,R,zeta_center,~,eta_center,~,n_r,n_z)
 % GAMMA CALCULATION
 gamma = zeros(n_r,n_z);
 % gamma -- top row
@@ -302,7 +216,7 @@ gamma(eta_center,zeta_center) = ((Z(eta_center,zeta_center+1)-Z(eta_center,zeta_
 gamma(end,zeta_center) = (((Z(end,zeta_center+1)-Z(end,zeta_center-1))./2).^2+... % (dx/dzeta)^2
                   ((R(end,zeta_center+1)-R(end,zeta_center-1))./2).^2);           % (dy/dzeta)^2
 end
-function [J] = jacobianCalc(Z,R,zeta_center,zeta_all,eta_center,eta_all,n_r,n_z)
+function [J] = jacobianCalc(Z,R,zeta_center,~,eta_center,~,n_r,n_z)
 % JACOBIAN CALCULATION
 J = zeros(n_r,n_z);
 % Jacobian -- top row

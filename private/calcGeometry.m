@@ -1,5 +1,5 @@
 %% Function Declaration
-function [engine_contour] = calcGeometry(Rc,Re,Rt,Lc,nozzle_type,points,Me,gam)
+function [engineContour] = calcGeometry(Rc,Re,Rt,Lc,nozzle_type,points,Me,gam)
 %% CHAMBER & THROAT CURVES GENERATION
 % Initial Values
 if nozzle_type == 1 % Minimum Length Conical Nozzle
@@ -14,7 +14,7 @@ if nozzle_type == 1 % Minimum Length Conical Nozzle
     % expansion to guarantee slow-enough expansion to produce minimal
     % additional inefficiencies.
 elseif nozzle_type == 2 % Rao Approximation - 80% Bell Nozzle
-    flt_ex = 0.5*Rt;
+    flt_ex = 1*Rt;
     % Typical value used in industry for any application other than conical
     % nozzles.
     
@@ -125,8 +125,8 @@ elseif nozzle_type == 3
 
 % Currently requires dependance on NASA's Method of Characteristics script
 % to produce nozzle geometry.
-load('input/wall_contour_0p5Rth.mat');
-noz_x = wall_contour_0p5Rth(:,1)'; noz_y = wall_contour_0p5Rth(:,2)';
+load('input/wall_contour_1Rth.mat');
+noz_x = wall_contour_1Rth(:,1)'.*Rt; noz_y = wall_contour_1Rth(:,2)'.*Rt;
 
 x_data = [ch_len_x,ch_x,ch_contr_x,x_us,noz_x];
 y_data = [ch_len_y,ch_y,ch_contr_y,y_us,noz_y];
@@ -136,20 +136,21 @@ end
 x_data = x_data - x_data(1);
 
 % Linear curve fit to evenly separate the x-domain datapoints.
-[engine_fit,~,~,~] = fit(x_data',y_data','linearinterp');
+[engine_fit,~,~,~] = fit(x_data',y_data','pchipinterp');
 x_new = linspace(0,x_data(end),points);
 y_new = engine_fit(x_new); y_new = y_new';
 %% COMBINED MATRICES INTO FINAL CURVE
-engine_contour = [x_new;y_new];
+engineContour = [x_new;y_new];
 %%  Export Full Contour Data to '.csv' in [cm]:
-    z_data=zeros(1,size(engine_contour,2));
-    output_matrix=transpose([engine_contour(1,:);engine_contour(2,:);z_data]);
+    z_data=zeros(1,size(engineContour,2));
+    output_matrix=[engineContour(1,:);engineContour(2,:);z_data]';
     
     outputFolder = 'output';
-    filePath = fullfile(outputFolder,'engineGeometry.txt');
+    fileName = 'interiorEngineContour.txt';
+    filePath = fullfile(outputFolder,fileName);
     writematrix(output_matrix,filePath)
     
     % Outputs file path where the 'contour.csv' file was generated
-    fprintf('''engineGeometry.txt'' generated at %s\n',filePath);
+    fprintf('''%s'' generated at %s\n',fileName,filePath);
 end
 
