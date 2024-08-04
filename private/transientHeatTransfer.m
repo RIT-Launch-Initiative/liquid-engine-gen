@@ -26,8 +26,8 @@ flagFailedAnalysis = 0;
 % THERMAL_CONDUCTIVITY -> FUNCTION INPUT
 
 % Differentials & Timesteps
-dr = mean(wallThickness/(n_r-1));
-dz = (Z(end)-Z(1))/(n_z-1);
+dr = mean(mean(R(2:end,:)-R(1:end-1,:)));
+dz = mean(mean(Z(:,2:end)-Z(:,1:end-1)));
 
 dt = (1/(2*thermalDiffusivity*(1/dr^2+1/dz^2)))/5;
 totalTimesteps = round(burnTime/dt);
@@ -53,8 +53,8 @@ T_f_L = zeros(1,n_z);
 Tzz = zeros(n_r,n_z);
 Tzn = zeros(n_r,n_z);
 Tnn = zeros(n_r,n_z);
-Tz = zeros(n_r,n_z);
-Tn = zeros(n_r,n_z);
+%Tz = zeros(n_r,n_z);
+%Tn = zeros(n_r,n_z);
 laplacianT = zeros(n_r,n_z);
 
 % Initialize eta and zeta x and y-axis transformations

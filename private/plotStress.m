@@ -31,4 +31,6 @@ function [] = plotStress(Z,R,FOS,vonMisesStress,burnTime,t5)
     ylabel(a2,'F.O.S. $[-]$','FontSize',16,'Rotation',270,'Interpreter','latex');
     grid on; grid minor;
 
+    linkaxes([t1,t2],'xy')
+
 end
