@@ -3,9 +3,7 @@ This script is to be used to develop a small liquid bi-propellant rocket engine.
 
 %% TODO List
 % 1. Include selections of various efficiencies
-%   - Nozzle efficiency is left to do
-% 2. Ability to tune CEA output towards a specific combustion chamber temperature
+%   - Nozzle efficiency remaining
+% 2. Ability to tune CEA output towards a specific combustion temperature
 % 3. Method of Characteristics Implementation (WIP)
-% 4. Implement FOS script
-%     - Outer wall thicknesses
 % 5. Engine Volume/Weight from Variable thickness
