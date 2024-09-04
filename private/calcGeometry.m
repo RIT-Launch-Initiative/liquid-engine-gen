@@ -1,5 +1,5 @@
 %% Function Declaration
-function [interiorEngineContour,exteriorEngineContour] = calcGeometry(specificHeatRatio,exitMach,chamberRadius,exitRadius,throatRadius,chamberLength,nozzleType,contourPoints,interiorContractionAngle,exteriorContractionAngle,chamberThickness,nozzleThickness,nozzleFilet)
+function [interiorEngineContour,exteriorEngineContour] = calcGeometry(raoPercInt,expansionAR,chamberRadius,exitRadius,throatRadius,chamberLength,nozzleType,contourPoints,interiorContractionAngle,exteriorContractionAngle,chamberThickness,nozzleThickness,nozzleFilet)
 %% NOZZLE INPUT SELECTION
 if nozzleType == 1 % Minimum Length Conical Nozzle
     throatDSFilet = 1.5*throatRadius;
@@ -8,27 +8,44 @@ if nozzleType == 1 % Minimum Length Conical Nozzle
 
     entrantAngle = 15;
 
-elseif nozzleType == 2 % Rao Approximation - 80% Bell Nozzle
-    %throatDSFilet = 0.382*throatRadius;
-    throatDSFilet = 1.5*throatRadius;
+elseif nozzleType == 2 % Minimum-length Rao Nozzle
+    load('ExitAngles.mat'); load('EntrantAngles.mat');
+
+    throatDSFilet = 0.382*throatRadius;
     % Typical value used in industry for any application other than conical
     % nozzles.
     
-    entrantAngle = 22;
-    % nu_e/2 is typically the value used for minimum entrant angle. The
-    % 2/3rds rule is applied here as a "factor of safety" of nozzle
-    % expansion to guarantee slow-enough expansion to produce minimal
-    % additional inefficiencies.
-elseif nozzleType == 3
-    fprintf('Perfect Nozzle selected, ensure correct geometry input before use...\n')
+    if(raoPercInt == 1) % 60% Rao
 
-    throatDSFilet = 1*throatRadius;
-    [~,PMAngle,~] = flowprandtlmeyer(specificHeatRatio,exitMach);
-    entrantAngle = PMAngle/2;
-    % nu_e/2 is allowed to be used in this case, since Method of
-    % Characteristics is a method which employs analyzing the expansion
-    % characteristics of the supersonic flow to produce no shocks.
+        raoPerc = 0.6;
+        entrantAngle = Ent60(expansionAR);
+        exitAngle = Ex60(expansionAR);
+        
+    elseif(raoPercInt == 2) % 70% Rao
 
+        raoPerc = 0.7;
+        entrantAngle = Ent70(expansionAR);
+        exitAngle = Ex70(expansionAR);
+
+    elseif(raoPercInt == 3) % 80% Rao
+
+        raoPerc = 0.8;
+        entrantAngle = Ent80(expansionAR);
+        exitAngle = Ex80(expansionAR);
+
+    elseif(raoPercInt == 4) % 90% Rao
+
+        raoPerc = 0.9;
+        entrantAngle = Ent90(expansionAR);
+        exitAngle = Ex90(expansionAR);
+
+    elseif(raoPercInt == 5) % 100% Rao
+
+        raoPerc = 1.0;
+        entrantAngle = Ent100(expansionAR);
+        exitAngle = Ex100(expansionAR);
+
+    end
 end
 %% INTERIOR GEOMETRY
 
@@ -91,18 +108,11 @@ if nozzleType == 1 % 15-Degree Half Angle (Conical) Nozzle
     interiorContourY = [ch_len_y,ch_y,y_us,y_ds,noz_y];
 elseif nozzleType == 2 % Rao Nozzle
 % http://www.aspirespace.org.uk/downloads/Thrust%20optimised%20parabolic%20nozzle.pdf
-
-
-    bellPercent = 0.8;
-    throatArea=pi*throatRadius^2;
-    exitArea=pi*exitRadius^2;
-    expAR=exitArea/throatArea;
-    exitAngle=13.5;
-
+    
     % Quadratic Bezier Curve
     N_x = x_ds(end);
     N_y = y_ds(end);
-    E_x = bellPercent*((sqrt(expAR) - 1)*throatRadius/tand(15)); 
+    E_x = raoPerc*((sqrt(expansionAR) - 1)*throatRadius/tand(15)); 
     E_y = exitRadius;
     m1 = tand(entrantAngle); 
     m2 = tand(exitAngle); 
@@ -119,19 +129,6 @@ elseif nozzleType == 2 % Rao Nozzle
 
     interiorContourX = [ch_len_x,ch_x,x_us,x_ds,noz_x];
     interiorContourY = [ch_len_y,ch_y,y_us,y_ds,noz_y];
-
-elseif nozzleType == 3
-
-%[noz_x,noz_y] = methodOfCharacteristics(Rt,gam,theta_n);
-
-% Currently requires dependance on NASA's Method of Characteristics script
-% to produce nozzle geometry.
-load('input/wall_contour_1Rth.mat');
-noz_x = wall_contour_1Rth(:,1)'.*throatRadius; noz_y = wall_contour_1Rth(:,2)'.*throatRadius;
-
-interiorContourX = [ch_len_x,ch_x,x_us,noz_x];
-interiorContourY = [ch_len_y,ch_y,y_us,noz_y];
-
 end
 %% OUTER CONTOUR GENERATION
 % Outer Chamber Straight
@@ -139,8 +136,6 @@ outerChamberX = linspace(-chamberLength,ch_x(1),contourPoints);
 outerChamberY = linspace(chamberRadius+chamberThickness,chamberRadius+chamberThickness,contourPoints);
 
 % outer chamber filet
-
-
 flt_ch_out = flt_ch+chamberThickness;
 ch_angles = linspace(90,90-exteriorContractionAngle,contourPoints);
 ch_center_y = chamberRadius+chamberThickness - flt_ch_out;

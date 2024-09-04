@@ -4,6 +4,8 @@ function [Ac] = checkOverride(Rc_override,Ac)
             warning(sprintf(['Ideal chamber radius (%.2f [in]) greater than ' ...
                 'overridden radius (%.2f [in]), please correct for optimal ' ...
                 'performance.\n'],convlength(sqrt(Ac/pi),'m','in'),Rc_override))
+            Rc = convlength(Rc_override,'in','m');
+            Ac = pi*Rc^2;
         else
             Rc = convlength(Rc_override,'in','m');
             Ac = pi*Rc^2;

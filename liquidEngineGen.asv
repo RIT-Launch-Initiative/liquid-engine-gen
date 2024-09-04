@@ -1,10 +1,23 @@
 %% TITLE: Thrust Chamber Analysis
 % Developer: Evan Olsen
-% Date: 08-04-2024
+% Date: 09-03-2024
 % Description: This script is to be used to develop a small liquid
 % bi-propellant rocket engine. It has been tested to be operational for the
 % design of a 150 [lbf] liquid rocket engine using nitrous oxide and
 % isopropanol as the propellants.
+
+% Changelog from previous push:
+% 1. Removed perfect nozzle option, was not built-in due to complexities of 
+%    Method of Characteristics and was not worthy of being in the final
+%    release.
+% 2. Added baked-in relationships for Rao entrant and exit angles for easy
+%    Rao nozzle generation, as an alternative to perfect nozzles.
+% 3. Updated the way the variable wall thickness is generated, using
+%    constant angle slopes instead of a defined variable thickness curve that
+%    is interpolated. This results in much cleaner looking profiles. Also,
+%    this generation breaks the mesh generation algorithm which runs the
+%    FEA simulations. Do not run FEA an
+
 
 % startup() runs a function which sets default figure fonts, sizes, text
 % interpreters, etc. for consistent output on all machines.
@@ -67,8 +80,15 @@ INPUT.CEAIterations = 50;
 %% INPUTS -- GEOMETRY
 INPUT.nozzleTypeInt = 2; 
 % 1 = Minimum Length Conical Nozzle
-% 2 = Minimum Length Bell Nozzle
-% 3 = Method of Characteristics [WORK IN PROGRESS]
+% 2 = Minimum Length Rao Nozzle
+
+% Applicable for 'INPUT.nozzleTypeInt = 2' ONLY
+INPUT.raoPerc = 3;
+% 1 = 60% Bell
+% 2 = 70% Bell
+% 3 = 80% Bell
+% 4 = 90% Bell
+% 5 = 100% Bell
 
 INPUT.characteristicLength = 0;                                            % [m] Characteristic Length
 % Set to '0' to use default aspect ratio of 2.0
@@ -76,11 +96,11 @@ INPUT.characteristicLength = 0;                                            % [m]
 % L* that is reasonable to account for injector/combustion inefficiencies.
 % Use L* for engines of similar size class & propellant combonations.
 
-INPUT.interiorContractionAngle = 45;                                       % [deg]
-INPUT.exteriorContractionAngle = 45;                                       % [deg]
+INPUT.interiorContractionAngle = 35;                                       % [deg]
+INPUT.exteriorContractionAngle = 20;                                       % [deg]
 
 INPUT.chamberThickness_in = 0.15;                                          % [in]
-INPUT.nozzleThickness_in = 0.0625;                                         % [in]
+INPUT.nozzleThickness_in = 0.05;                                           % [in]
 INPUT.nozzleFilet_in = 0.25;                                               % [in]
 
 %% INPUTS -- OVERRIDES
@@ -106,13 +126,21 @@ INPUT.doTempCorrection = 1;
 % Set to '0' to ignore c*-eff and use ideal combustion temperature values.
 % This will effect the heat transfer analysis, if applicable.
 
-INPUT.doFiniteElementAnalysis = 1;
+% UPDATE 09-03-2024: THIS DOES NOT CURRENTLY WORK, DO NOT ENABLE. (MESH
+% ALGORITHM TO BE UPDATED FOR FULL FUNCTIONALITY)
+INPUT.doFiniteElementAnalysis = 0;
 % Set to '1' to enable finite element analysis
 % Set to '0' to disable finite element analysis
 
-INPUT.doExportGraphics = 1;
+INPUT.doExportGraphics = 0;
 % Set to '1' to enable vector graphics export
 % Set to '0' to disable vector graphics export
+%% INPUTS -- HEAT TRANSFER CHARACTERISTICS
+INPUT.combustionStartAxialLocation_in = 0.82612; % [in]
+    INPUT.combustionStartAxialLocation = convlength(INPUT.combustionStartAxialLocation_in,'in','m');
+
+INPUT.estimatedWallTemperature = 1000; % [K]
+
 %% INPUTS -- FINITE ELEMENT ANALYSIS
 % Mesh Sizing
 INPUT.zDivisions = 1000; % This also drives the number of output points.
@@ -133,7 +161,7 @@ INPUT.poissonsRatio = 0.29;                                                % [-]
     INPUT.fuelEnthalpy,INPUT.fuelTemperature,INPUT.fuelDensity,INPUT.oxidizerType,INPUT.oxidizerPercWeight,INPUT.oxidizerEnthalpy, ...
     INPUT.oxidizerTemperature,INPUT.oxidizerDensity,INPUT.atmosphericPressure,INPUT.maxExpansionAR);
 
-OUTPUT.dynamicViscosity               = OUTPUT.CEA.output.eql.viscosity;         % [cP] Dynamic Viscosity
+OUTPUT.dynamicViscosity               = OUTPUT.CEA.output.eql.viscosity.*0.001;         % [Pa*s] Dynamic Viscosity
 OUTPUT.idealCharacteristicVelocity    = OUTPUT.CEA.output.eql.cstar(3);          % [m/s] Ideal Combustion Efficiency
 OUTPUT.characteristicVelocity         = OUTPUT.idealCharacteristicVelocity...    % [m/s] Corrected Combustion Efficiency
                                         *INPUT.characteristicVelocityEfficiency;                                  
@@ -145,7 +173,7 @@ OUTPUT.adiabaticFlameTemperature      = OUTPUT.idealAdiabaticFlameTemperature...
 OUTPUT.density                        = OUTPUT.CEA.output.eql.density;           % [kg/m^3] Density
 OUTPUT.idealMachNumber                = OUTPUT.CEA.output.eql.mach;              % [-] Mach Number
 OUTPUT.sonicVelocity                  = OUTPUT.CEA.output.eql.sonvel;            % [m/s] Local Speed of Sound
-OUTPUT.specificHeat                   = OUTPUT.CEA.output.eql.cp_tran;           % [J/kg-K] Specific Heat (Constant Pressure)
+OUTPUT.specificHeat                   = OUTPUT.CEA.output.eql.cp_tran;     % [kJ/kg-K] Specific Heat (Constant Pressure)
 OUTPUT.prandtlNumber                  = OUTPUT.CEA.output.eql.prandtl;           % [-] Prandtl Number
 OUTPUT.localPressureBar               = OUTPUT.CEA.output.eql.pressure;          % [bar] Local Pressure
 
@@ -183,10 +211,11 @@ OUTPUT.throatArea = calcAstar(OUTPUT.massFlowrate,OUTPUT.chamberPressure,OUTPUT.
 OUTPUT.exitArea = OUTPUT.expansionAR*OUTPUT.throatArea;                    % [m^2] Exit Area
 OUTPUT.chamberArea = OUTPUT.contractionAR*OUTPUT.throatArea;               % [m^2] Chamber Area
 
-OUTPUT.idealSpecificImpulse = OUTPUT.idealExitVelocity/...INPUT.accelDueToGrav;                                % [s] Ideal Specific Impulse
-OUTPUT.specificImpulse = OUTPUT.exitVelocity/INPUT.accelDueToGrav;                                            % [s] Specific Impulse
-OUTPUT.fuelMassFlowrate = OUTPUT.massFlowrate/(1+OUTPUT.OFRatio);                                 % [kg/s] Fuel Mass Flowrate
-OUTPUT.oxidizerMassFlowrate = OUTPUT.massFlowrate - OUTPUT.fuelMassFlowrate;                              % [kg/s] Oxidizer Mass Flowrate
+OUTPUT.idealSpecificImpulse = OUTPUT.idealExitVelocity/...
+                              INPUT.accelDueToGrav;                        % [s] Ideal Specific Impulse
+OUTPUT.specificImpulse = OUTPUT.exitVelocity/INPUT.accelDueToGrav;         % [s] Specific Impulse
+OUTPUT.fuelMassFlowrate = OUTPUT.massFlowrate/(1+OUTPUT.OFRatio);          % [kg/s] Fuel Mass Flowrate
+OUTPUT.oxidizerMassFlowrate = OUTPUT.massFlowrate-OUTPUT.fuelMassFlowrate; % [kg/s] Oxidizer Mass Flowrate
 
 % Check if overridden chamber diameter was inputted, then verify if it is
 % greater than the nominal chamber diameter. Performance increases are
@@ -194,33 +223,33 @@ OUTPUT.oxidizerMassFlowrate = OUTPUT.massFlowrate - OUTPUT.fuelMassFlowrate;    
 [OUTPUT.chamberArea] = checkOverride(INPUT.overrideChamberRadius,OUTPUT.chamberArea);
 OUTPUT.contractionAR = OUTPUT.chamberArea/OUTPUT.throatArea;
 
-OUTPUT.chamberVolume = INPUT.characteristicLength*OUTPUT.throatArea;                                         % [m^3] Chamber Volume
+OUTPUT.chamberVolume = INPUT.characteristicLength*OUTPUT.throatArea;       % [m^3] Chamber Volume
 
-OUTPUT.chamberRadius = sqrt(OUTPUT.chamberArea/pi);                                            % [m] Chamber Radius
-OUTPUT.chamberDiameter = 2*OUTPUT.chamberRadius;                                                   % [m] Chamber Diamater
-OUTPUT.chamberDiameterInch = convlength(OUTPUT.chamberDiameter,'m','in');                             % [in] Chamber Diameter
+OUTPUT.chamberRadius = sqrt(OUTPUT.chamberArea/pi);                        % [m] Chamber Radius
+OUTPUT.chamberDiameter = 2*OUTPUT.chamberRadius;                           % [m] Chamber Diamater
+OUTPUT.chamberDiameterInch = convlength(OUTPUT.chamberDiameter,'m','in');  % [in] Chamber Diameter
 
 if(INPUT.characteristicLength == 0)
-    OUTPUT.chamberLength = OUTPUT.chamberDiameter*2;                                               % [m] Chamber Length
-    OUTPUT.chamberLengthInch = convlength(OUTPUT.chamberLength,'m','in');                         % [in] Chamber Length
+    OUTPUT.chamberLength = OUTPUT.chamberDiameter*2;                       % [m] Chamber Length
+    OUTPUT.chamberLengthInch = convlength(OUTPUT.chamberLength,'m','in');  % [in] Chamber Length
 else
-    OUTPUT.chamberLength = OUTPUT.chamberVolume/OUTPUT.chamberArea;                                       % [m] Chamber Length
-    OUTPUT.chamberLengthInch = convlength(OUTPUT.chamberLength,'m','in');                         % [in] Chamber Length
+    OUTPUT.chamberLength = OUTPUT.chamberVolume/OUTPUT.chamberArea;        % [m] Chamber Length
+    OUTPUT.chamberLengthInch = convlength(OUTPUT.chamberLength,'m','in');  % [in] Chamber Length
 end
 
-OUTPUT.throatRadius = sqrt(OUTPUT.throatArea/pi);                                            % [m] Throat Radius
-OUTPUT.throatDiameter = 2*OUTPUT.throatRadius;                                                   % [m] Throat Diameter
-OUTPUT.throatDiameterInch = convlength(OUTPUT.throatDiameter,'m','in');                             % [in] Throat Diameter
+OUTPUT.throatRadius = sqrt(OUTPUT.throatArea/pi);                          % [m] Throat Radius
+OUTPUT.throatDiameter = 2*OUTPUT.throatRadius;                             % [m] Throat Diameter
+OUTPUT.throatDiameterInch = convlength(OUTPUT.throatDiameter,'m','in');    % [in] Throat Diameter
 
-OUTPUT.exitRadius = sqrt(OUTPUT.exitArea/pi);                                            % [m] Exit Radius
-OUTPUT.exitDiameter = 2*OUTPUT.exitRadius;                                                   % [m] Exit Diameter
-OUTPUT.exitDiameterInch = convlength(OUTPUT.exitDiameter,'m','in');                             % [in] Exit Diamater
+OUTPUT.exitRadius = sqrt(OUTPUT.exitArea/pi);                              % [m] Exit Radius
+OUTPUT.exitDiameter = 2*OUTPUT.exitRadius;                                 % [m] Exit Diameter
+OUTPUT.exitDiameterInch = convlength(OUTPUT.exitDiameter,'m','in');        % [in] Exit Diamater
 
-INPUT.chamberThickness = convlength(INPUT.chamberThickness_in,'in','m');
-INPUT.nozzleThickness = convlength(INPUT.nozzleThickness_in,'in','m');
-INPUT.nozzleFilet = convlength(INPUT.nozzleFilet_in,'in','m');
+INPUT.chamberThickness = convlength(INPUT.chamberThickness_in,'in','m');   % [m] Chamber Thickness
+INPUT.nozzleThickness = convlength(INPUT.nozzleThickness_in,'in','m');     % [m] Nozzle Thickness
+INPUT.nozzleFilet = convlength(INPUT.nozzleFilet_in,'in','m');             % [m] Nozzle Filet Radius
 %% THRUST CHAMBER GEOMETRY
-[OUTPUT.interiorEngineContour, OUTPUT.exteriorEngineContour] = calcGeometry(OUTPUT.specificHeatRatio,OUTPUT.exitMachNumber,OUTPUT.chamberRadius,OUTPUT.exitRadius,OUTPUT.throatRadius, ...
+[OUTPUT.interiorEngineContour, OUTPUT.exteriorEngineContour] = calcGeometry(INPUT.raoPerc,OUTPUT.expansionAR,OUTPUT.chamberRadius,OUTPUT.exitRadius,OUTPUT.throatRadius, ...
     OUTPUT.chamberLength,INPUT.nozzleTypeInt,INPUT.zDivisions,INPUT.interiorContractionAngle,INPUT.exteriorContractionAngle,INPUT.chamberThickness,INPUT.nozzleThickness,INPUT.nozzleFilet);      % [m] Engine Geometry
 
 %% AREA-MACH RELATIONSHIP
@@ -229,9 +258,14 @@ INPUT.nozzleFilet = convlength(INPUT.nozzleFilet_in,'in','m');
  OUTPUT.analysisTemperature(2),OUTPUT.chamberPressure,OUTPUT.density(2));
 
 %% FILM COEFFICIENT
-[OUTPUT.FEA.h_g] = calcFilmCoefficient(OUTPUT.interiorEngineContour,OUTPUT.chamberRadius, ...
-OUTPUT.massFlowrate,OUTPUT.dynamicViscosity,OUTPUT.specificHeat,OUTPUT.prandtlNumber);                              % [W/m-K] Film Coefficient
+% [OUTPUT.FEA.h_g_1] = calcFilmCoefficient(OUTPUT.interiorEngineContour,OUTPUT.chamberRadius, ...
+% OUTPUT.massFlowrate,OUTPUT.dynamicViscosity,OUTPUT.specificHeat,OUTPUT.prandtlNumber);                              % [W/m-K] Film Coefficient
 
+[OUTPUT.FEA.h_g] = calcBartzCorrelation(INPUT.estimatedWallTemperature,INPUT.combustionStartAxialLocation,OUTPUT.interiorEngineContour,OUTPUT.throatDiameter,OUTPUT.throatArea,OUTPUT.prandtlNumber.eql(2),OUTPUT.dynamicViscosity(2),OUTPUT.specificHeat.eql(2),OUTPUT.specificHeatRatio,OUTPUT.chamberPressure,OUTPUT.characteristicVelocity,OUTPUT.localMachNumber',OUTPUT.adiabaticFlameTemperature(2));
+
+
+% plot(OUTPUT.interiorEngineContour(1,:),OUTPUT.FEA.h_g_1,'-r'); hold on;
+% plot(OUTPUT.interiorEngineContour(1,:),OUTPUT.FEA.h_g_2,'-b');
 %% 2D TRANSIENT HEAT TRANSFER FEA
 [OUTPUT.FEA.Z,OUTPUT.FEA.R,OUTPUT.FEA.Zeta,OUTPUT.FEA.Eta,OUTPUT.FEA.wallThickness] = generateWallMesh(OUTPUT.interiorEngineContour,OUTPUT.exteriorEngineContour,INPUT.zDivisions,INPUT.rDivisions);
 
@@ -281,6 +315,7 @@ if(INPUT.doFiniteElementAnalysis == 1)
 end
 OUTPUT.tgFigure.Visible = 'on';
 %% COMMAND WINDOW OUTPUT
+fprintf('\n')
 cprintf('*black','PERFORMANCE OVERVIEW\n')
 cprintf('black','Ideal c*:      %.2f [m/s]\nCorrected c*:  %.2f [m/s]\n',OUTPUT.idealCharacteristicVelocity,OUTPUT.characteristicVelocity);
 cprintf('black','Efficiency:    %.2f   [%%]\n\n',INPUT.characteristicVelocityEfficiency*100);
